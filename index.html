@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CHISPA // RIFT</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="hud">
+    <div class="brand">CHISPA <span>// RIFT</span></div>
+
+    <div class="level-badge">
+      Nivel <strong id="level-num">1</strong>/5
+    </div>
+
+    <div class="controls">
+      <button id="btn-attract" class="mode-btn active" data-mode="attract">1. Atracción</button>
+      <button id="btn-repel" class="mode-btn" data-mode="repel">2. Repulsión</button>
+      <button id="btn-vortex" class="mode-btn" data-mode="vortex">3. Vórtice</button>
+      <button id="btn-retry" class="danger-btn">Reiniciar [R]</button>
+    </div>
+
+    <div class="stats">
+      <span>Cristales: <strong id="nodes-left">0/0</strong></span>
+      <span>Campos: <strong id="fields-left">0</strong></span>
+      <span>Tiros: <strong id="shots-left">0</strong></span>
+    </div>
+  </div>
+
+  <div id="overlay" class="hidden">
+    <div class="overlay-card">
+      <h2 id="overlay-title">¡SISTEMA ENERGIZADO!</h2>
+      <p id="overlay-desc">Todos los cristales entraron en resonancia.</p>
+      <button id="overlay-btn" class="action-btn">Siguiente Nivel</button>
+    </div>
+  </div>
+
+  <div id="hint">
+    Clic izquierdo: poner campo &bull; Clic derecho (mantener y soltar): apuntar y disparar &bull; R: reiniciar nivel
+  </div>
+
+  <canvas id="arena"></canvas>
+
+  <script src="game.js"></script>
+</body>
+</html>
