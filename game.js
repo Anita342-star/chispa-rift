@@ -130,11 +130,11 @@ let isAiming = false;
 let aimInputType = null;
 let mousePos = { x: 0, y: 0 };
 
-// Botón táctil visible en pantalla para apuntar y disparar fácil en celular
+// Botón para alternar modo apuntar al tocar/arrastrar
 const shootToggleBtn = document.createElement("button");
 shootToggleBtn.id = "mobile-shoot-toggle";
 shootToggleBtn.type = "button";
-shootToggleBtn.textContent = "🎯 Modo Disparo: OFF";
+shootToggleBtn.textContent = "🎯 Apuntar: OFF";
 Object.assign(shootToggleBtn.style, {
   position: "fixed",
   bottom: "16px",
@@ -143,7 +143,7 @@ Object.assign(shootToggleBtn.style, {
   padding: "12px 16px",
   borderRadius: "999px",
   border: "2px solid #ffbe0b",
-  background: "rgba(15, 23, 42, 0.9)",
+  background: "rgba(15, 23, 42, 0.92)",
   color: "#ffbe0b",
   fontWeight: "700",
   fontSize: "14px",
@@ -152,17 +152,62 @@ Object.assign(shootToggleBtn.style, {
 });
 document.body.appendChild(shootToggleBtn);
 
+// Botón directo para disparar hacia donde apunta la línea amarilla (o hacia el primer nodo si no moviste)
+const fireNowBtn = document.createElement("button");
+fireNowBtn.id = "mobile-fire-btn";
+fireNowBtn.type = "button";
+fireNowBtn.textContent = "⚡ DISPARAR";
+Object.assign(fireNowBtn.style, {
+  position: "fixed",
+  bottom: "16px",
+  left: "16px",
+  zIndex: "999",
+  padding: "12px 18px",
+  borderRadius: "999px",
+  border: "2px solid #ffbe0b",
+  background: "#ffbe0b",
+  color: "#080a12",
+  fontWeight: "800",
+  fontSize: "14px",
+  cursor: "pointer",
+  touchAction: "manipulation",
+});
+document.body.appendChild(fireNowBtn);
+
 function updateShootToggleUI() {
-  shootToggleBtn.textContent = mobileShootMode ? "🎯 Modo Disparo: ON" : "🎯 Modo Disparo: OFF";
-  shootToggleBtn.style.background = mobileShootMode ? "#ffbe0b" : "rgba(15, 23, 42, 0.9)";
+  shootToggleBtn.textContent = mobileShootMode ? "🎯 Apuntar: ON" : "🎯 Apuntar: OFF";
+  shootToggleBtn.style.background = mobileShootMode ? "#ffbe0b" : "rgba(15, 23, 42, 0.92)";
   shootToggleBtn.style.color = mobileShootMode ? "#080a12" : "#ffbe0b";
 }
 
-shootToggleBtn.addEventListener("click", (e) => {
+shootToggleBtn.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
   e.stopPropagation();
   mobileShootMode = !mobileShootMode;
   updateShootToggleUI();
+  if (mobileShootMode) {
+    isAiming = true;
+    if (mousePos.x === 0 && mousePos.y === 0) {
+      mousePos = { x: emitterPos.x + 120, y: emitterPos.y };
+    }
+  } else {
+    isAiming = false;
+  }
   playTone(mobileShootMode ? 480 : 300, "sine", 0.1);
+});
+
+fireNowBtn.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  let tx = mousePos.x;
+  let ty = mousePos.y;
+  if (Math.hypot(tx - emitterPos.x, ty - emitterPos.y) < 15 && targetNodes.length > 0) {
+    tx = targetNodes[0].x;
+    ty = targetNodes[0].y;
+  }
+  isAiming = false;
+  aimInputType = null;
+  shootFromEmitter(tx, ty);
 });
 
 const fields = [];
@@ -368,4 +413,472 @@ class EnergyCore {
         const overlapRight = right - (this.x - this.radius);
         const overlapTop = this.y + this.radius - top;
         const overlapBottom = bottom - (this.y - this.radius);
-        const minOverlap = Math.
+        const minOverlap = Math.min(overlapLeft, overlapRight, overlapTop, overlapBottom);
+
+        if (minOverlap === overlapLeft || minOverlap === overlapRight) {
+          this.vx *= -1;
+          this.x += minOverlap === overlapLeft ? -overlapLeft : overlapRight;
+        } else {
+          this.vy *= -1;
+          this.y += minOverlap === overlapTop ? -overlapTop : overlapBottom;
+        }
+        spawnBurst(this.x, this.y, COLORS.barrier, 8);
+        playTone(180, "sawtooth", 0.08);
+      }
+    }
+
+    for (const node of targetNodes) {
+      const dist = Math.hypot(this.x - node.x, this.y - node.y);
+      if (dist < this.radius + node.radius) {
+        node.activate();
+      }
+    }
+  }
+
+  draw() {
+    ctx.save();
+    for (let i = 1; i < this.trail.length; i++) {
+      const ratio = i / this.trail.length;
+      ctx.strokeStyle = `rgba(255, 190, 11, ${ratio * 0.75})`;
+      ctx.lineWidth = ratio * 6;
+      ctx.beginPath();
+      ctx.moveTo(this.trail[i - 1].x, this.trail[i - 1].y);
+      ctx.lineTo(this.trail[i].x, this.trail[i].y);
+      ctx.stroke();
+    }
+
+    ctx.shadowColor = COLORS.core;
+    ctx.shadowBlur = 16;
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+class Particle {
+  constructor(x, y, color) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 70 + Math.random() * 240;
+    this.x = x;
+    this.y = y;
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+    this.color = color;
+    this.life = 0.45 + Math.random() * 0.35;
+    this.maxLife = this.life;
+    this.size = 2.5 + Math.random() * 3;
+  }
+
+  update(dt) {
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.vx *= 0.95;
+    this.vy *= 0.95;
+    this.life -= dt;
+  }
+
+  draw() {
+    const ratio = Math.max(0, this.life / this.maxLife);
+    ctx.save();
+    ctx.globalAlpha = ratio;
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size * ratio, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+class Shockwave {
+  constructor(x, y, color, maxRadius = 130) {
+    this.x = x;
+    this.y = y;
+    this.color = color;
+    this.radius = 8;
+    this.maxRadius = maxRadius;
+  }
+
+  update(dt) {
+    this.radius += 340 * dt;
+  }
+
+  draw() {
+    const alpha = Math.max(0, 1 - this.radius / this.maxRadius);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = this.color;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function spawnBurst(x, y, color, count = 18) {
+  for (let i = 0; i < count; i++) {
+    particles.push(new Particle(x, y, color));
+  }
+}
+
+function loadLevel(index) {
+  currentLevelIndex = index;
+  const lvl = LEVELS[index];
+
+  fields.length = 0;
+  cores.length = 0;
+  targetNodes.length = 0;
+  barriers.length = 0;
+  particles.length = 0;
+  shockwaves.length = 0;
+
+  remainingFields = lvl.maxFields;
+  remainingShots = lvl.maxShots;
+  levelState = "playing";
+  isAiming = false;
+  aimInputType = null;
+  overlayEl.classList.add("hidden");
+
+  emitterPos = { x: lvl.emitter.x * width, y: lvl.emitter.y * height };
+  mousePos = { x: emitterPos.x + 120, y: emitterPos.y };
+
+  lvl.nodes.forEach((n) => {
+    targetNodes.push(new TargetNode(n.x * width, n.y * height));
+  });
+
+  lvl.barriers.forEach((b) => {
+    barriers.push({ x: b.x * width, y: b.y * height, w: b.w, h: b.h });
+  });
+
+  updateHUD();
+}
+
+function updateHUD() {
+  levelNumEl.textContent = currentLevelIndex + 1;
+  const lit = targetNodes.filter((n) => n.activated).length;
+  nodesLeftEl.textContent = `${lit}/${targetNodes.length}`;
+  fieldsLeftEl.textContent = remainingFields;
+  shotsLeftEl.textContent = remainingShots;
+}
+
+function checkLevelStatus() {
+  if (levelState !== "playing") return;
+
+  const allLit = targetNodes.every((n) => n.activated);
+  if (allLit) {
+    levelState = "won";
+    setTimeout(() => {
+      if (currentLevelIndex < LEVELS.length - 1) {
+        overlayTitleEl.textContent = `¡NIVEL ${currentLevelIndex + 1} COMPLETADO!`;
+        overlayDescEl.textContent = `Siguiente reto: ${LEVELS[currentLevelIndex + 1].name}`;
+        overlayBtnEl.textContent = "Siguiente Nivel";
+      } else {
+        overlayTitleEl.textContent = "¡MAESTRO DE CHISPA // RIFT!";
+        overlayDescEl.textContent = "Has energizado todos los sistemas del laboratorio.";
+        overlayBtnEl.textContent = "Jugar de Nuevo";
+      }
+      overlayEl.classList.remove("hidden");
+    }, 550);
+    return;
+  }
+
+  if (remainingShots === 0 && cores.length === 0) {
+    levelState = "lost";
+    overlayTitleEl.textContent = "SIN ENERGÍA";
+    overlayDescEl.textContent = "Faltaron cristales por encender. Ajusta tus campos e inténtalo de nuevo.";
+    overlayBtnEl.textContent = "Reintentar Nivel";
+    overlayEl.classList.remove("hidden");
+  }
+}
+
+overlayBtnEl.addEventListener("click", () => {
+  if (levelState === "won") {
+    const next = currentLevelIndex < LEVELS.length - 1 ? currentLevelIndex + 1 : 0;
+    loadLevel(next);
+  } else {
+    loadLevel(currentLevelIndex);
+  }
+});
+
+function placeFieldAt(x, y) {
+  if (remainingFields <= 0) {
+    playTone(130, "sawtooth", 0.1);
+    return;
+  }
+  fields.push(new ForceField(x, y, currentMode));
+  shockwaves.push(new Shockwave(x, y, COLORS[currentMode], 95));
+  remainingFields--;
+  updateHUD();
+  playTone(currentMode === "attract" ? 420 : currentMode === "repel" ? 190 : 330, "sine", 0.15);
+}
+
+function shootFromEmitter(targetX, targetY) {
+  if (levelState !== "playing" || remainingShots <= 0) return;
+
+  const dx = targetX - emitterPos.x;
+  const dy = targetY - emitterPos.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 5) return;
+
+  const speed = 430;
+  const vx = (dx / dist) * speed;
+  const vy = (dy / dist) * speed;
+
+  cores.push(new EnergyCore(emitterPos.x, emitterPos.y, vx, vy));
+  shockwaves.push(new Shockwave(emitterPos.x, emitterPos.y, COLORS.core, 85));
+  remainingShots--;
+  updateHUD();
+  playTone(270, "triangle", 0.14);
+}
+
+document.querySelectorAll(".mode-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".mode-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentMode = btn.dataset.mode;
+    mobileShootMode = false;
+    isAiming = false;
+    updateShootToggleUI();
+  });
+});
+
+document.getElementById("btn-retry").addEventListener("click", () => loadLevel(currentLevelIndex));
+
+// --- CONTROLES DE MOUSE (PC) ---
+canvas.addEventListener("mousemove", (e) => {
+  mousePos = { x: e.clientX, y: e.clientY };
+});
+
+canvas.addEventListener("mousedown", (e) => {
+  if (levelState !== "playing") return;
+
+  if (e.button === 0) {
+    placeFieldAt(e.clientX, e.clientY);
+  } else if (e.button === 2) {
+    isAiming = true;
+    aimInputType = "mouse";
+    mousePos = { x: e.clientX, y: e.clientY };
+  }
+});
+
+canvas.addEventListener("mouseup", (e) => {
+  if (e.button === 2 && isAiming && aimInputType === "mouse") {
+    isAiming = false;
+    aimInputType = null;
+    shootFromEmitter(e.clientX, e.clientY);
+  }
+});
+
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+// --- CONTROLES POINTER (ANDROID CHROME / FIREFOX + TÁCTIL) ---
+canvas.addEventListener("pointerdown", (e) => {
+  if (levelState !== "playing" || e.pointerType === "mouse") return;
+  e.preventDefault();
+  canvas.setPointerCapture(e.pointerId);
+
+  const tx = e.clientX;
+  const ty = e.clientY;
+  const distToEmitter = Math.hypot(tx - emitterPos.x, ty - emitterPos.y);
+
+  if ((mobileShootMode || distToEmitter <= 85) && remainingShots > 0) {
+    isAiming = true;
+    aimInputType = "pointer";
+    mousePos = { x: tx, y: ty };
+  } else {
+    placeFieldAt(tx, ty);
+  }
+});
+
+canvas.addEventListener("pointermove", (e) => {
+  if (!isAiming || aimInputType !== "pointer" || e.pointerType === "mouse") return;
+  e.preventDefault();
+  mousePos = { x: e.clientX, y: e.clientY };
+});
+
+canvas.addEventListener("pointerup", (e) => {
+  if (!isAiming || aimInputType !== "pointer" || e.pointerType === "mouse") return;
+  e.preventDefault();
+  isAiming = false;
+  aimInputType = null;
+  shootFromEmitter(e.clientX, e.clientY);
+});
+
+canvas.addEventListener("pointercancel", () => {
+  isAiming = false;
+  aimInputType = null;
+});
+
+window.addEventListener("keydown", (e) => {
+  if (e.key === "1") document.getElementById("btn-attract").click();
+  if (e.key === "2") document.getElementById("btn-repel").click();
+  if (e.key === "3") document.getElementById("btn-vortex").click();
+  if (e.key.toLowerCase() === "r") loadLevel(currentLevelIndex);
+});
+
+window.addEventListener("resize", () => {
+  width = canvas.width = window.innerWidth;
+  height = canvas.height = window.innerHeight;
+  loadLevel(currentLevelIndex);
+});
+
+function drawGrid() {
+  const step = 44;
+  ctx.strokeStyle = "rgba(30, 41, 59, 0.45)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x < width; x += step) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, height);
+    ctx.stroke();
+  }
+  for (let y = 0; y < height; y += step) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(width, y);
+    ctx.stroke();
+  }
+}
+
+function drawEmitter() {
+  ctx.save();
+  ctx.strokeStyle = COLORS.core;
+  ctx.shadowColor = COLORS.core;
+  ctx.shadowBlur = 14;
+  ctx.lineWidth = 2.5;
+
+  ctx.beginPath();
+  ctx.arc(emitterPos.x, emitterPos.y, 16, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.fillStyle = remainingShots > 0 ? COLORS.core : "#475569";
+  ctx.beginPath();
+  ctx.arc(emitterPos.x, emitterPos.y, 6, 0, Math.PI * 2);
+  ctx.fill();
+
+  if ((isAiming || mobileShootMode) && remainingShots > 0) {
+    ctx.setLineDash([6, 6]);
+    ctx.strokeStyle = "rgba(255, 190, 11, 0.85)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(emitterPos.x, emitterPos.y);
+    ctx.lineTo(mousePos.x, mousePos.y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawBarriers() {
+  ctx.save();
+  for (const b of barriers) {
+    ctx.fillStyle = "rgba(255, 77, 109, 0.16)";
+    ctx.strokeStyle = COLORS.barrier;
+    ctx.shadowColor = COLORS.barrier;
+    ctx.shadowBlur = 10;
+    ctx.lineWidth = 2;
+    ctx.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h);
+    ctx.strokeRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h);
+  }
+  ctx.restore();
+}
+
+loadLevel(0);
+let lastTime = performance.now();
+
+function loop(now) {
+  const dt = Math.min(0.033, (now - lastTime) / 1000);
+  lastTime = now;
+
+  ctx.save();
+  if (shakeTime > 0) {
+    shakeTime -= dt;
+    ctx.translate((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
+  }
+
+  ctx.fillStyle = "#080a12";
+  ctx.fillRect(0, 0, width, height);
+  drawGrid();
+  drawBarriers();
+  drawEmitter();
+
+  targetNodes.forEach((n) => {
+    n.update(dt);
+    n.draw();
+  });
+
+  fields.forEach((f) => {
+    f.update(dt);
+    f.draw();
+  });
+
+  cores.forEach((c) => c.update(dt));
+
+  for (let i = 0; i < cores.length; i++) {
+    for (let j = i + 1; j < cores.length; j++) {
+      const a = cores[i];
+      const b = cores[j];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dist = Math.hypot(dx, dy);
+      const minDist = a.radius + b.radius;
+
+      if (dist > 0 && dist < minDist) {
+        const nx = dx / dist;
+        const ny = dy / dist;
+        const overlap = (minDist - dist) / 2;
+        a.x -= nx * overlap;
+        a.y -= ny * overlap;
+        b.x += nx * overlap;
+        b.y += ny * overlap;
+
+        [a.vx, b.vx] = [b.vx, a.vx];
+        [a.vy, b.vy] = [b.vy, a.vy];
+
+        const midX = (a.x + b.x) / 2;
+        const midY = (a.y + b.y) / 2;
+
+        shakeTime = 0.1;
+        spawnBurst(midX, midY, COLORS.attract, 22);
+        shockwaves.push(new Shockwave(midX, midY, COLORS.attract, 165));
+        playTone(520, "sine", 0.18);
+
+        for (const node of targetNodes) {
+          if (Math.hypot(midX - node.x, midY - node.y) < 165) {
+            node.activate();
+          }
+        }
+      }
+    }
+  }
+
+  let coresExpired = false;
+  for (let i = cores.length - 1; i >= 0; i--) {
+    if (cores[i].life <= 0) {
+      cores.splice(i, 1);
+      coresExpired = true;
+    } else {
+      cores[i].draw();
+    }
+  }
+
+  if (coresExpired) checkLevelStatus();
+
+  for (let i = particles.length - 1; i >= 0; i--) {
+    particles[i].update(dt);
+    if (particles[i].life <= 0) particles.splice(i, 1);
+    else particles[i].draw();
+  }
+
+  for (let i = shockwaves.length - 1; i >= 0; i--) {
+    shockwaves[i].update(dt);
+    if (shockwaves[i].radius >= shockwaves[i].maxRadius) shockwaves.splice(i, 1);
+    else shockwaves[i].draw();
+  }
+
+  ctx.restore();
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
